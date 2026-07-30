@@ -13,8 +13,8 @@ build/
 venv/
 env/
 
-# Data files (large CSVs)
-nifty-rl-env/data/*.csv
+# Ignore only the large combined dataset (27MB+), track individual stock CSVs
+nifty-rl-env/data/NIFTY50_all.csv
 
 # Trained model artifacts
 *.zip
