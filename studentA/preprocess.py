@@ -2,13 +2,6 @@
 preprocess.py
 
 Data Preprocessing Pipeline Orchestrator.
-
-Responsibilities:
-- Ingestion and validation of raw daily stock CSVs.
-- Calls `compute_technical_features` from feature_engineering.py.
-- Construct leakage-free target predictions.
-- Save processed outputs and stock metadata.
-- Multi-core CPU parallel execution via ProcessPoolExecutor.
 """
 
 from __future__ import annotations
@@ -23,24 +16,9 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-# Import modular feature engineering module
+# Import modular features and central configuration
 from feature_engineering import compute_technical_features
-
-# ==========================================================
-# Configuration & Directory Setup
-# ==========================================================
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-RAW_DATA_DIR = PROJECT_ROOT / "files" / "raw"
-PROCESSED_DATA_DIR = PROJECT_ROOT / "files" / "processed"
-METADATA_DIR = PROJECT_ROOT / "metadata"
-
-DATE_COLUMN = "Date"
-TARGET_COLUMN = "Target"
-TARGET_SHIFT = 1
-
-PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-METADATA_DIR.mkdir(parents=True, exist_ok=True)
+import config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,11 +53,11 @@ def clean_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
     stats = {"rows_raw": len(df), "duplicates_removed": 0, "invalid_ohlc_removed": 0}
     df_clean = df.copy()
 
-    df_clean[DATE_COLUMN] = pd.to_datetime(df_clean[DATE_COLUMN])
-    df_clean.sort_values(by=DATE_COLUMN, ascending=True, inplace=True)
+    df_clean[config.DATE_COLUMN] = pd.to_datetime(df_clean[config.DATE_COLUMN])
+    df_clean.sort_values(by=config.DATE_COLUMN, ascending=True, inplace=True)
 
     init_count = len(df_clean)
-    df_clean.drop_duplicates(subset=[DATE_COLUMN], keep="last", inplace=True)
+    df_clean.drop_duplicates(subset=[config.DATE_COLUMN], keep="last", inplace=True)
     stats["duplicates_removed"] = init_count - len(df_clean)
 
     num_cols = ["Open", "High", "Low", "Close", "Volume"]
@@ -113,12 +91,12 @@ def create_target(df: pd.DataFrame) -> pd.DataFrame:
     """
     df_target = df.copy()
 
-    df_target["Tomorrow_Close"] = df_target["Close"].shift(-TARGET_SHIFT)
+    df_target["Tomorrow_Close"] = df_target["Close"].shift(-config.TARGET_SHIFT)
     df_target["Tomorrow_Return"] = (
         df_target["Tomorrow_Close"] - df_target["Close"]
     ) / df_target["Close"]
 
-    df_target[TARGET_COLUMN] = (df_target["Tomorrow_Return"] > 0).astype(int)
+    df_target[config.TARGET_COLUMN] = (df_target["Tomorrow_Return"] > 0).astype(int)
     df_target.dropna(subset=["Tomorrow_Close", "Tomorrow_Return"], inplace=True)
 
     return df_target
@@ -136,7 +114,7 @@ def process_single_stock(file_path: Path) -> Path:
     df_clean, clean_stats = clean_dataframe(df_raw)
 
     # 3. Compute Features (imported from feature_engineering.py)
-    df_features = compute_technical_features(df_clean, date_col=DATE_COLUMN)
+    df_features = compute_technical_features(df_clean, date_col=config.DATE_COLUMN)
 
     # 4. Generate Target
     df_processed = create_target(df_features)
@@ -145,12 +123,12 @@ def process_single_stock(file_path: Path) -> Path:
     df_processed.dropna(inplace=True)
 
     # 6. Save Processed CSV
-    output_path = PROCESSED_DATA_DIR / file_path.name
+    output_path = config.PROCESSED_DATA_DIR / file_path.name
     df_processed.to_csv(output_path, index=False)
 
     # 7. Metadata Serialization
     rows_after = len(df_processed)
-    target_dist = df_processed[TARGET_COLUMN].value_counts(normalize=True)
+    target_dist = df_processed[config.TARGET_COLUMN].value_counts(normalize=True)
     pos_pct = float(target_dist.get(1, 0.0) * 100)
     neg_pct = float(target_dist.get(0, 0.0) * 100)
     exec_time = round(time.time() - start_time, 4)
@@ -162,14 +140,14 @@ def process_single_stock(file_path: Path) -> Path:
         "features_generated": len(df_processed.columns),
         "duplicates_removed": clean_stats["duplicates_removed"],
         "invalid_ohlc_removed": clean_stats["invalid_ohlc_removed"],
-        "start_date": str(df_processed[DATE_COLUMN].min()),
-        "end_date": str(df_processed[DATE_COLUMN].max()),
+        "start_date": str(df_processed[config.DATE_COLUMN].min()),
+        "end_date": str(df_processed[config.DATE_COLUMN].max()),
         "positive_class_pct": round(pos_pct, 2),
         "negative_class_pct": round(neg_pct, 2),
         "execution_time_sec": exec_time,
     }
 
-    meta_path = METADATA_DIR / f"{symbol}.json"
+    meta_path = config.METADATA_DIR / f"{symbol}.json"
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
@@ -180,12 +158,12 @@ def process_all_stocks() -> List[Path]:
     """Processes raw stock CSV files in parallel across CPU cores."""
     ignored_files = {"stock_metadata.csv", "metadata.csv"}
     raw_files = [
-        f for f in RAW_DATA_DIR.glob("*.csv") 
+        f for f in config.RAW_DATA_DIR.glob("*.csv") 
         if f.name not in ignored_files and f.stat().st_size > 0
     ]
 
     if not raw_files:
-        logger.warning("No valid stock CSV files found in directory: %s", RAW_DATA_DIR)
+        logger.warning("No valid stock CSV files found in directory: %s", config.RAW_DATA_DIR)
         return []
 
     logger.info("Found %d valid stock CSV file(s). Launching multi-core processing...", len(raw_files))

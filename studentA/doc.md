@@ -1,77 +1,127 @@
-# XGBoost Baseline Model for NIFTY 50 Price Movement Prediction
+# Generalized Multi-Stock Directional Prediction Engine
 
-## 1. Core Task Breakdown
+An end-to-end Machine Learning pipeline built using **XGBoost Classifier** to predict whether tomorrow's closing price of a stock will be **HIGHER (1)** or **LOWER (0)** than today's closing price. 
 
-### Sub-Problem
-- **Objective:** Predict the next-day price movement direction (Up/Down or Buy/Sell signal) for stocks in the NIFTY 50 dataset.
-- **Model:** XGBoost (Extreme Gradient Boosting).
-- **Role in Team Project:** Establish the benchmark. You are proving what a traditional, non-RL supervised model can achieve based purely on price and technical features.
-
-### Technique
-- Supervised learning classification or regression mapped to trading decisions.
-- Feature engineering derived from price and volume (OHLCV).
-
-### App Component
-- **Baseline Performance Panel:** A UI component (typically integrated into the team's Streamlit app) that displays your XGBoost model's metrics, predictions, backtest returns, Sharpe Ratio, and maximum drawdown alongside standard baselines like Buy-and-Hold.
+The engine processes OHLCV stock market data, engineers stationary technical indicators and historical sequence lags, pools multi-stock datasets, and trains a single generalized model across all stocks while strictly avoiding look-ahead data leakage.
 
 ---
 
-## 2. Technical Roadmap for Implementation
+## 🛠️ Project Structure
 
-### Step 1: Data Preparation & Feature Engineering
-Using the NIFTY 50 dataset (`rohanrao/nifty50-stock-market-data` on Kaggle or via `yfinance`):
+### 1. Before Running the Pipeline
+Before running any scripts, your repository contains the source code modules and raw input CSV files:
 
-- **Clean & Handle Data:** Account for missing values, corporate actions, and align trading dates.
-- **Engineer Technical Indicators:** Calculate features using libraries like `ta` or `pandas_ta`:
-  - **Momentum:** RSI (Relative Strength Index), MACD, Stochastic Oscillator.
-  - **Trend:** Simple and Exponential Moving Averages (SMA 20, 50, 200), ADX.
-  - **Volatility:** Bollinger Bands, ATR (Average True Range).
-  - **Volume:** OBV (On-Balance Volume), Volume Rate of Change.
-- **Define Target Variable ($y_t$):**
-  - Binary classification target:
-    $$ y_t = 1 \quad \text{if} \quad \text{Close}_{t+1} > \text{Close}_t \quad \text{else} \quad 0 $$
+```text
+ProjectFolder/
+├── config.py                 # Central configuration file (Paths, Parameters, Constants)
+├── feature_engineering.py    # Technical indicator & multi-day lag calculation engine
+├── preprocess.py             # Data cleaning, validation, multi-core processing pipeline
+├── train_xgboost.py          # Generalized multi-stock model training script
+├── test_eval.py              # Out-of-sample evaluation & feature importance metrics
+├── predict.py                # Batch & single-stock inference script
+├── requirements.txt          # Environment dependencies
+└── data/
+    └── raw/                  # Place all 50+ raw stock CSV files here (e.g., ASIANPAINT.csv)
 
-### Step 2: Time-Series Cross-Validation & Model Training
-- **Avoid Data Leakage:** Standard random $k$-fold cross-validation will leak future data. Use `TimeSeriesSplit` or expanding/rolling window cross-validation.
-- **Model Pipeline:**
-  - Train `XGBClassifier` on historical features.
-  - Tune hyperparameters (learning rate, max depth, subsample, `colsample_bytree`) to prevent overfitting.
-
-### Step 3: Convert Predictions to Trading Strategy & Backtest
-- Map predictions to position states:
-  - $1 \rightarrow \text{Long}$
-  - $0 \rightarrow \text{Cash/Flat}$ (or $-1 \rightarrow \text{Short}$)
-- Calculate strategy returns factoring in realistic transaction costs (e.g., 0.05% to 0.1% per trade).
-- Compute core quantitative metrics:
-  - Sharpe Ratio
-  - Maximum Drawdown (Max DD)
-  - Cumulative / Annualized Returns
-  - Accuracy / Precision / AUC-ROC
+```
 
 ---
 
-## 3. Deliverables Summary
+### 2. After Running the Pipeline
 
-| Deliverable | Details |
-| :--- | :--- |
-| **Model Code** | Clean, modular Python scripts/notebooks (`train_xgboost.py`, `feature_engineering.py`). |
-| **Strategy Metrics** | Summary table with Accuracy, Sharpe Ratio, Max Drawdown, and Cumulative Returns. |
-| **Baseline Panel UI** | A modular Streamlit component (e.g., `render_baseline_panel()`) plotting your model's equity curve against Buy-and-Hold. |
+As you execute preprocessing, training, and prediction scripts, the system automatically builds output directories to store processed data, metadata, saved models, and prediction reports:
+
+```text
+ProjectFolder/
+├── config.py
+├── feature_engineering.py
+├── preprocess.py
+├── train_xgboost.py
+├── test_eval.py
+├── predict.py
+├── requirements.txt
+├── data/
+│   ├── raw/                  # Input raw stock CSV files
+│   └── processed/            # [NEW] Preprocessed CSVs with technical features & targets
+├── metadata/                 # [NEW] JSON metadata files detailing cleaning stats per stock
+├── models/                   # [NEW] Saved trained XGBoost model artifacts (.json)
+└── reports/                  # [NEW] Output batch prediction CSV reports & metrics
+    ├── feature_importance/   # [NEW] Feature importance plots/data
+    ├── metrics/              # [NEW] Validation metrics logs
+    ├── shap/                 # [NEW] Model explainability outputs
+    └── latest_batch_predictions.csv  # Generated output from predict.py
+
+```
 
 ---
 
-## 4. Key Considerations for Quant Success
+## 📂 Purpose of Newly Created Folders & Files
 
-- **Look-ahead Bias:** Ensure all technical indicators calculated at step $t$ use data only up to step $t$.
-- **Transaction Costs:** XGBoost can whip-saw (generate frequent buy/sell signals). Be sure to penalize frequent trading with transaction costs in your strategy backtest.
-- **Handoff to Team:** Share your feature definitions with **Teammate B** (RL Environment designer) so feature spaces stay aligned across the project.
+| New Directory / File | Created By | Purpose & Contents |
+| --- | --- | --- |
+| `data/processed/` | `preprocess.py` | Stores preprocessed CSVs containing cleaned OHLCV data, computed technical indicators (RSI, MACD, Bollinger Bands, ATR), 1/2/3/5-day lag memory features, and 1-day forward target labels (`Target`). |
+| `metadata/` | `preprocess.py` | Contains individual `{SYMBOL}.json` metadata files tracking data cleaning statistics (e.g., raw rows count, invalid OHLC rows removed, duplicate drops, positive/negative class balance, execution time). |
+| `models/` | `train_xgboost.py` | Stores the trained generalized model file (`xgboost_generalized_50stocks.json`). This serialized XGBoost tree model is reused by `test_eval.py` and `predict.py` without retraining. |
+| `reports/` | `config.py` & `predict.py` | Holds generated analysis logs, evaluation charts, and `latest_batch_predictions.csv` containing directional predictions for all raw stocks in `data/raw/`. |
 
 ---
 
-## 5. Pipeline
+## 🚀 Execution Instructions
 
-The following diagram illustrates the end-to-end workflow—from raw data ingestion to final backtest evaluation and UI visualization.
+Follow these steps in sequence to run the pipeline:
 
-![Pipeline Diagram](/.src/pipline.png)
+### Step 1: Environment Setup
 
+Install all required Python dependencies:
 
+```bash
+pip install -r requirements.txt
+
+```
+
+### Step 2: Data Preprocessing & Feature Engineering
+
+Run multi-core parallel processing across all raw CSV files in `data/raw/`. This calculates technical features, lag sequences, and forward target labels, saving processed outputs to `data/processed/`:
+
+```bash
+python preprocess.py
+
+```
+
+### Step 3: Train the Generalized XGBoost Model
+
+Pool all processed CSV files into a unified dataset, split data chronologically to prevent time-series leakage, and train the regularized XGBoost classifier:
+
+```bash
+python train_xgboost.py
+
+```
+
+* **Output Artifact:** `models/xgboost_generalized_50stocks.json`
+
+### Step 4: Model Evaluation & Feature Diagnostics
+
+Evaluate model performance on unseen out-of-time test data (Accuracy, ROC-AUC, Log-Loss, Confusion Matrix) and inspect feature importances:
+
+```bash
+python test_eval.py
+
+```
+
+### Step 5: Run Batch / Single Stock Predictions
+
+Predict tomorrow's price direction (UP / DOWN) for all stock CSVs in `data/raw/`:
+
+```bash
+python predict.py
+
+```
+
+To run inference on a specific single stock file:
+
+```bash
+python predict.py data/raw/ASIANPAINT.csv
+
+```
+
+---
