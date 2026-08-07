@@ -10,7 +10,7 @@ def explore_stock_data(ticker: str):
     Args:
         ticker (str): The stock ticker symbol to analyze.
     """
-    # TODO: Load data using DataLoader
+git add .    # TODO: Load data using DataLoader
     # TODO: Print summary statistics
     # TODO: Add technical indicators
     # TODO: Generate and save charts (price, RSI, MACD)
