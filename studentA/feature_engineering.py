@@ -1,13 +1,8 @@
 """
 feature_engineering.py
 
-Quantitative Feature Engineering Engine for Stock Market Data.
-
-Responsibilities:
-- Compute stationary technical indicators (Returns, Volatility, SMA distances, RSI, MACD, Bollinger Bands, ATR).
-- Compute market microstructure signals (Volume ratios, VWAP distance, Deliverable %).
-- Compute multi-day sequence lags (1, 2, 3, 5 day lags) to provide historical temporal memory.
-- Pure data transformation module (No file I/O or target creation).
+Quantitative Feature Engineering Engine.
+Computes stationary technical indicators and market microstructure signals.
 """
 
 from __future__ import annotations
@@ -21,14 +16,13 @@ logger = logging.getLogger("feature_engineering")
 
 def compute_technical_features(df: pd.DataFrame, date_col: str = "Date") -> pd.DataFrame:
     """
-    Computes stationary technical, statistical, momentum, and lagged features on an OHLCV DataFrame.
-    All calculations are backward-looking to eliminate look-ahead bias.
+    Computes stationary technical indicators and statistical features on an OHLCV DataFrame.
+    All calculations use strictly backward-looking rolling windows to eliminate look-ahead bias.
     """
     df_feat = df.copy()
 
-    # Ensure chronological ordering
+    # Ensure chronological ordering before rolling window calculations
     if date_col in df_feat.columns:
-        df_feat[date_col] = pd.to_datetime(df_feat[date_col])
         df_feat.sort_values(by=date_col, ascending=True, inplace=True)
 
     close = df_feat["Close"]
@@ -41,19 +35,14 @@ def compute_technical_features(df: pd.DataFrame, date_col: str = "Date") -> pd.D
     df_feat["Vol_10D"] = df_feat["Log_Return"].rolling(window=10).std()
     df_feat["Vol_20D"] = df_feat["Log_Return"].rolling(window=20).std()
 
-    # Multi-day momentum velocity (Cumulative returns over 3, 5, and 10 days)
-    df_feat["Return_3D"] = (close - close.shift(3)) / (close.shift(3) + 1e-8)
-    df_feat["Return_5D"] = (close - close.shift(5)) / (close.shift(5) + 1e-8)
-    df_feat["Return_10D"] = (close - close.shift(10)) / (close.shift(10) + 1e-8)
-
     # --- 2. Normalized Trend Indicators (Distance to Moving Averages) ---
     sma_10 = close.rolling(window=10).mean()
     sma_20 = close.rolling(window=20).mean()
     sma_50 = close.rolling(window=50).mean()
 
-    df_feat["Dist_SMA_10"] = (close - sma_10) / (sma_10 + 1e-8)
-    df_feat["Dist_SMA_20"] = (close - sma_20) / (sma_20 + 1e-8)
-    df_feat["Dist_SMA_50"] = (close - sma_50) / (sma_50 + 1e-8)
+    df_feat["Dist_SMA_10"] = (close - sma_10) / sma_10
+    df_feat["Dist_SMA_20"] = (close - sma_20) / sma_20
+    df_feat["Dist_SMA_50"] = (close - sma_50) / sma_50
 
     # --- 3. Relative Strength Index (RSI - 14 Days) ---
     delta = close.diff()
@@ -67,7 +56,7 @@ def compute_technical_features(df: pd.DataFrame, date_col: str = "Date") -> pd.D
     # --- 4. Moving Average Convergence Divergence (MACD) ---
     ema_12 = close.ewm(span=12, adjust=False).mean()
     ema_26 = close.ewm(span=26, adjust=False).mean()
-    df_feat["MACD"] = ema_12 - ema_26
+    df_feat["MACD"] = (ema_12 - ema_26) / close  # Price-normalized MACD
     df_feat["MACD_Signal"] = df_feat["MACD"].ewm(span=9, adjust=False).mean()
     df_feat["MACD_Diff"] = df_feat["MACD"] - df_feat["MACD_Signal"]
 
@@ -82,31 +71,18 @@ def compute_technical_features(df: pd.DataFrame, date_col: str = "Date") -> pd.D
     tr2 = (high - close.shift(1)).abs()
     tr3 = (low - close.shift(1)).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    df_feat["ATR_14"] = tr.rolling(window=14).mean() / (close + 1e-8)
+    df_feat["ATR_14"] = tr.rolling(window=14).mean() / close
 
     # --- 6. Volume Microstructure Features ---
     vol_sma_20 = volume.rolling(window=20).mean()
     df_feat["Volume_Ratio_20"] = volume / (vol_sma_20 + 1e-8)
 
+    # Optional microstructure columns
     if "VWAP" in df_feat.columns:
-        df_feat["VWAP_Dist"] = (close - df_feat["VWAP"]) / (df_feat["VWAP"] + 1e-8)
+        vwap = pd.to_numeric(df_feat["VWAP"], errors="coerce")
+        df_feat["VWAP_Dist"] = (close - vwap) / vwap
     if "%Deliverble" in df_feat.columns:
-        df_feat["Deliverable_Pct"] = pd.to_numeric(df_feat["%Deliverble"], errors="coerce")
-
-    # --- 7. Temporal Lagged Features (1, 2, 3, 5 Trading Days Memory) ---
-    lagged_target_cols = [
-        "Log_Return",
-        "RSI_14",
-        "MACD_Diff",
-        "Volume_Ratio_20",
-        "Dist_SMA_20",
-        "BB_Pband",
-        "ATR_14",
-    ]
-
-    for col in lagged_target_cols:
-        if col in df_feat.columns:
-            for lag in [1, 2, 3, 5]:
-                df_feat[f"{col}_lag_{lag}"] = df_feat[col].shift(lag)
+        deliv = pd.to_numeric(df_feat["%Deliverble"], errors="coerce")
+        df_feat["Deliverable_Pct"] = np.where(deliv <= 1.0, deliv, deliv / 100.0)
 
     return df_feat

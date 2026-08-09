@@ -1,7 +1,14 @@
 """
 preprocess.py
 
-Data Preprocessing Pipeline Orchestrator.
+Data Preprocessing & Feature Pipeline Orchestrator.
+
+Responsibilities:
+- Filter out non-stock and combined files via config.IGNORED_FILES.
+- Ingestion and physical OHLC sanity filtering on raw CSVs.
+- Call compute_technical_features from feature_engineering.py.
+- Construct 1-day forward classification targets.
+- Export clean datasets and JSON audit metadata.
 """
 
 from __future__ import annotations
@@ -16,9 +23,8 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-# Import modular features and central configuration
-from feature_engineering import compute_technical_features
 import config
+from feature_engineering import compute_technical_features
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,12 +33,8 @@ logging.basicConfig(
 logger = logging.getLogger("preprocess")
 
 
-# ==========================================================
-# Core Data Pipeline Functions
-# ==========================================================
-
 def load_and_validate_raw_csv(file_path: Path) -> pd.DataFrame:
-    """Load stock CSV and assert minimum essential structure."""
+    """Load stock CSV and assert essential column structure."""
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -64,6 +66,7 @@ def clean_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
     for col in num_cols:
         df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
 
+    # Filter unphysical price/volume bounds
     valid_mask = (
         (df_clean["Open"] > 0)
         & (df_clean["High"] > 0)
@@ -86,7 +89,7 @@ def clean_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
 
 def create_target(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Construct 1-day forward target predictions.
+    Construct 1-day forward prediction targets.
     Target = 1 if Tomorrow's Close > Today's Close else 0.
     """
     df_target = df.copy()
@@ -97,36 +100,38 @@ def create_target(df: pd.DataFrame) -> pd.DataFrame:
     ) / df_target["Close"]
 
     df_target[config.TARGET_COLUMN] = (df_target["Tomorrow_Return"] > 0).astype(int)
+    
+    # Drop last row since future target is unknown
     df_target.dropna(subset=["Tomorrow_Close", "Tomorrow_Return"], inplace=True)
 
     return df_target
 
 
 def process_single_stock(file_path: Path) -> Path:
-    """Full processing workflow for a single stock CSV."""
+    """Executes complete preprocessing workflow for a single stock file."""
     start_time = time.time()
     symbol = file_path.stem
 
-    # 1. Ingest
+    # 1. Ingestion
     df_raw = load_and_validate_raw_csv(file_path)
 
-    # 2. Clean
+    # 2. Cleaning
     df_clean, clean_stats = clean_dataframe(df_raw)
 
-    # 3. Compute Features (imported from feature_engineering.py)
+    # 3. Feature Generation
     df_features = compute_technical_features(df_clean, date_col=config.DATE_COLUMN)
 
-    # 4. Generate Target
+    # 4. Target Generation
     df_processed = create_target(df_features)
 
-    # 5. Drop rolling NaNs
+    # 5. Handle rolling NaNs cleanly across all engineered features
     df_processed.dropna(inplace=True)
 
-    # 6. Save Processed CSV
+    # Save processed CSV
     output_path = config.PROCESSED_DATA_DIR / file_path.name
     df_processed.to_csv(output_path, index=False)
 
-    # 7. Metadata Serialization
+    # 6. Metadata logging
     rows_after = len(df_processed)
     target_dist = df_processed[config.TARGET_COLUMN].value_counts(normalize=True)
     pos_pct = float(target_dist.get(1, 0.0) * 100)
@@ -155,11 +160,10 @@ def process_single_stock(file_path: Path) -> Path:
 
 
 def process_all_stocks() -> List[Path]:
-    """Processes raw stock CSV files in parallel across CPU cores."""
-    ignored_files = {"stock_metadata.csv", "metadata.csv"}
+    """Processes raw stock CSV files in parallel across CPU cores using config.IGNORED_FILES."""
     raw_files = [
         f for f in config.RAW_DATA_DIR.glob("*.csv") 
-        if f.name not in ignored_files and f.stat().st_size > 0
+        if f.name not in config.IGNORED_FILES and f.stat().st_size > 0
     ]
 
     if not raw_files:

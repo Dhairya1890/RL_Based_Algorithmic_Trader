@@ -19,13 +19,11 @@ from sklearn.metrics import (
 
 import config
 
-EXCLUDE_COLUMNS = {
-    "Date", "Symbol", "Series", "Prev Close", "Open", "High", "Low", "Last", 
-    "Close", "VWAP", "Volume", "Turnover", "Trades", "Deliverable Volume", 
-    "%Deliverble", "Tomorrow_Close", "Tomorrow_Return", "Target"
-}
+# Use config.EXCLUDE_COLUMNS as the single source of truth so this script
+# always stays in sync with what train_xgboost.py actually trained on.
+EXCLUDE_COLUMNS = set(config.EXCLUDE_COLUMNS)
 
-TARGET_COLUMN = "Target"
+TARGET_COLUMN = config.TARGET_COLUMN
 
 
 def load_and_split_test_data(data_dir: Path, test_ratio: float = 0.15):
@@ -46,12 +44,12 @@ def load_and_split_test_data(data_dir: Path, test_ratio: float = 0.15):
 
 def main():
     # 1. Load Model
-    model_path = config.MODEL_DIR / "xgboost_generalized_50stocks.json"
+    model_path = config.MODELS_DIR / config.GENERALIZED_MODEL_NAME
     if not model_path.exists():
         raise FileNotFoundError(f"Saved model not found at {model_path}. Run train_xgboost.py first.")
 
     model = xgb.XGBClassifier()
-    model.load_model(model_path)
+    model.load_model(str(model_path))
     print(f"Loaded model from: {model_path}")
 
     # 2. Get Test Data & Feature Columns
