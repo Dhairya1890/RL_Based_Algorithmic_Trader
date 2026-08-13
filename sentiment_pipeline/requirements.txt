@@ -1,0 +1,29 @@
+# Data handling
+pandas>=2.2.3
+numpy>=1.26.4
+
+# HTTP requests and scraping
+requests>=2.32.3
+beautifulsoup4>=4.12.0
+lxml>=5.2.0
+
+#BSE India unofficial API
+bse>=3.3.0
+
+# GDELT
+gdeltdoc>=1.12.0
+
+# Gemini API
+google-generativeai>=0.7.0
+
+# Rate limiting
+tenacity>=8.3.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Streamlit (for Phase 5)
+streamlit>=1.35.0
