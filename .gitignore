@@ -12,6 +12,8 @@ build/
 .venv/
 venv/
 env/
+.env
+sentiment_pipeline/.env
 
 # Ignore only the large combined dataset (27MB+), track individual stock CSVs
 nifty-rl-env/data/NIFTY50_all.csv
