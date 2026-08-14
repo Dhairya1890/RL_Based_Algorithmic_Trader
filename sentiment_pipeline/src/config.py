@@ -21,9 +21,13 @@ SENTIMENT_OUT_PATH  = PROCESSED_DIR / "sentiment_features.csv"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # ── Gemini settings ───────────────────────────────────────────────────────────
-GEMINI_MODEL        = "gemini-1.5-flash"   # fast and cheap for batch scoring
+GEMINI_MODEL        = "gemini-2.5-flash"   # fast and cheap for batch scoring
 GEMINI_RPM_LIMIT    = 15                   # free tier: 15 requests per minute
 GEMINI_BATCH_SIZE   = 10                   # headlines per API call (batching saves quota)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_RPM     = 30
+GEMINI_RPM   = 15
 
 # ── GDELT settings ────────────────────────────────────────────────────────────
 GDELT_START_DATE    = "2013-01-01"         # GDELT reliable coverage starts here
