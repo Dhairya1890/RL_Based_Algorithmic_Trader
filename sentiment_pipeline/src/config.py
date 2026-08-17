@@ -18,13 +18,19 @@ TICKER_RANGES_PATH  = PROCESSED_DIR / "ticker_ranges.csv"
 SENTIMENT_OUT_PATH  = PROCESSED_DIR / "sentiment_features.csv"
 
 # ── API keys ──────────────────────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEYS = [
+    key for i in range(1, 5)
+    if (key := os.getenv(f"GEMINI_API_KEY_{i}"))
+]
 
 # ── Gemini settings ───────────────────────────────────────────────────────────
 GEMINI_MODEL        = "gemini-2.5-flash"   # fast and cheap for batch scoring
 GEMINI_RPM_LIMIT    = 15                   # free tier: 15 requests per minute
 GEMINI_BATCH_SIZE   = 10                   # headlines per API call (batching saves quota)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEYS = [
+    key for i in range(1, 8)
+    if (key := os.getenv(f"GROQ_API_KEY_{i}"))
+]
 GROQ_MODEL   = "llama-3.3-70b-versatile"
 GROQ_RPM     = 30
 GEMINI_RPM   = 15
