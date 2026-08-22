@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+stable-baselines3[extra]
+gymnasium
+yfinance
+pandas
+numpy
+scikit-learn
+joblib
+google-generativeai
+requests
+streamlit
+plotly
+python-dotenv
