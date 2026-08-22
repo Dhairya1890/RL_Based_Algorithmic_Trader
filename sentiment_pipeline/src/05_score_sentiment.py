@@ -26,9 +26,9 @@ import google.generativeai as genai
 from groq import Groq
 from config import (
     RAW_DIR,
-    GEMINI_API_KEY,
+    GEMINI_API_KEYS,
     GEMINI_MODEL,
-    GROQ_API_KEY,
+    GROQ_API_KEYS,
     GROQ_MODEL,
     GROQ_RPM,
     GEMINI_RPM,
@@ -101,94 +101,128 @@ def parse_response(text: str, expected_count: int) -> list[dict] | None:
     except (json.JSONDecodeError, ValueError, TypeError):
         return None
 
+class ScorerClient:
+    """Wraps a single API key for either Groq or Gemini."""
 
-# ── Groq scorer ───────────────────────────────────────────────────────────────
-class GroqScorer:
-    def __init__(self):
-        self.client      = Groq(api_key=GROQ_API_KEY)
-        self.rpm         = GROQ_RPM
-        self.min_gap     = 60.0 / self.rpm  # seconds between requests
-        self.last_call   = 0.0
-        self.consecutive_429s = 0
+    def __init__(self, provider: str, api_key: str):
+        self.provider  = provider
+        self.api_key   = api_key
+        self.last_call = 0.0
+        self.cooldown_until = 0.0  # epoch time when this key is usable again
 
-    def _wait(self):
+        if provider == "groq":
+            self.client = Groq(api_key=api_key)
+            self.min_gap = 60.0 / 30   # 30 RPM
+        else:
+            genai.configure(api_key=api_key)
+            self.client = genai.GenerativeModel(
+                GEMINI_MODEL,
+                system_instruction=SYSTEM_PROMPT,
+            )
+            self.min_gap = 60.0 / 15   # 15 RPM
+
+    def is_available(self) -> bool:
+        return time.time() >= self.cooldown_until
+
+    def score_batch(self, headlines: list[str]) -> list[dict] | None:
+        # Respect per-key rate limit
         elapsed = time.time() - self.last_call
-        gap     = self.min_gap - elapsed
+        gap = self.min_gap - elapsed
         if gap > 0:
             time.sleep(gap)
 
-    def score_batch(self, headlines: list[str]) -> list[dict] | None:
-        self._wait()
         try:
-            resp = self.client.chat.completions.create(
-                model    = GROQ_MODEL,
-                messages = [
-                    {"role": "system",  "content": SYSTEM_PROMPT},
-                    {"role": "user",    "content": build_user_prompt(headlines)},
-                ],
-                temperature = 0.1,
-                max_tokens  = 500,
-            )
-            self.last_call = time.time()
-            self.consecutive_429s = 0
-            text = resp.choices[0].message.content
-            return parse_response(text, len(headlines))
+            if self.provider == "groq":
+                resp = self.client.chat.completions.create(
+                    model       = GROQ_MODEL,
+                    messages    = [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": build_user_prompt(headlines)},
+                    ],
+                    temperature = 0.1,
+                    max_tokens  = 500,
+                )
+                self.last_call = time.time()
+                return parse_response(resp.choices[0].message.content, len(headlines))
+
+            else:  # gemini
+                resp = self.client.generate_content(
+                    build_user_prompt(headlines),
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.1,
+                        max_output_tokens=500,
+                    ),
+                )
+                self.last_call = time.time()
+                return parse_response(resp.text, len(headlines))
 
         except Exception as e:
             self.last_call = time.time()
             err = str(e).lower()
-            if "429" in err or "rate limit" in err:
-                self.consecutive_429s += 1
-                wait = min(60 * self.consecutive_429s, 300)
-                tqdm.write(f"  [GROQ 429] rate limit hit, waiting {wait}s")
-                time.sleep(wait)
+            if "429" in err or "rate limit" in err or "quota" in err:
+                # Cool this key down for 60 seconds
+                self.cooldown_until = time.time() + 60
+                tqdm.write(f"  [429] {self.provider} key ...{self.api_key[-6:]} cooling 60s")
             else:
-                tqdm.write(f"  [GROQ ERR] {e}")
+                tqdm.write(f"  [ERR] {self.provider} key ...{self.api_key[-6:]}: {e}")
             return None
 
 
-# ── Gemini scorer ─────────────────────────────────────────────────────────────
-class GeminiScorer:
-    def __init__(self):
-        genai.configure(api_key=GEMINI_API_KEY)
-        self.model       = genai.GenerativeModel(
-            GEMINI_MODEL,
-            system_instruction=SYSTEM_PROMPT,
-        )
-        self.rpm         = GEMINI_RPM
-        self.min_gap     = 60.0 / self.rpm
-        self.last_call   = 0.0
+class RotatingScorer:
+    """Rotates across all Groq and Gemini keys, skipping cooled-down ones."""
 
-    def _wait(self):
-        elapsed = time.time() - self.last_call
-        gap     = self.min_gap - elapsed
-        if gap > 0:
-            time.sleep(gap)
+    def __init__(self):
+        self.clients = []
+        for key in GROQ_API_KEYS:
+            self.clients.append(ScorerClient("groq", key))
+        for key in GEMINI_API_KEYS:
+            self.clients.append(ScorerClient("gemini", key))
+
+        self.current = 0
+        tqdm.write(f"Loaded {len(GROQ_API_KEYS)} Groq keys + {len(GEMINI_API_KEYS)} Gemini keys")
+        tqdm.write(f"Total pool: {len(self.clients)} API clients\n")
+
+    def _next_available(self) -> ScorerClient | None:
+        """Find next available client that is not in cooldown."""
+        for _ in range(len(self.clients)):
+            self.current = (self.current + 1) % len(self.clients)
+            client = self.clients[self.current]
+            if client.is_available():
+                return client
+        return None  # all clients in cooldown
 
     def score_batch(self, headlines: list[str]) -> list[dict] | None:
-        self._wait()
-        try:
-            resp = self.model.generate_content(
-                build_user_prompt(headlines),
-                generation_config=genai.types.GenerationConfig(
-                    temperature  = 0.1,
-                    max_output_tokens = 500,
-                ),
-            )
-            self.last_call = time.time()
-            return parse_response(resp.text, len(headlines))
+        # Try current client first
+        client = self.clients[self.current]
 
-        except Exception as e:
-            self.last_call = time.time()
-            tqdm.write(f"  [GEMINI ERR] {e}")
-            time.sleep(5)
+        if not client.is_available():
+            client = self._next_available()
+
+        if client is None:
+            # All keys cooling down, find minimum wait time
+            wait = min(c.cooldown_until for c in self.clients) - time.time()
+            tqdm.write(f"  [ALL COOLING] waiting {wait:.0f}s for a key to free up")
+            time.sleep(max(wait, 1))
+            client = self._next_available()
+
+        if client is None:
             return None
+
+        result = client.score_batch(headlines)
+
+        # On failure rotate immediately
+        if result is None:
+            next_client = self._next_available()
+            if next_client:
+                self.current = self.clients.index(next_client)
+                result = next_client.score_batch(headlines)
+
+        return result
 
 
 # ── Main scoring loop ─────────────────────────────────────────────────────────
 def score_all(df: pd.DataFrame) -> pd.DataFrame:
-    groq   = GroqScorer()
-    gemini = GeminiScorer()
+    scorer = RotatingScorer()
 
     scores     = [None] * len(df)
     magnitudes = [None] * len(df)
@@ -218,19 +252,13 @@ def score_all(df: pd.DataFrame) -> pd.DataFrame:
     for batch_num, batch_idx in enumerate(tqdm(batches, desc="Batches")):
         headlines = df.iloc[batch_idx]["headline"].tolist()
 
-        # Try Groq first
-        result = groq.score_batch(headlines)
-
-        # Fall back to Gemini if Groq fails
-        if result is None:
-            tqdm.write(f"  Falling back to Gemini for batch {batch_num + start_batch}")
-            result = gemini.score_batch(headlines)
-
+        result = scorer.score_batch(headlines)
         if result is not None:
             for local_i, global_i in enumerate(batch_idx):
-                scores[global_i]     = result[local_i]["sentiment_score"]
+                scores[global_i] = result[local_i]["sentiment_score"]
                 magnitudes[global_i] = result[local_i]["magnitude"]
-        else:
+                
+        if result is None:
             tqdm.write(f"  [FAILED] batch {batch_num + start_batch}, marking as failed")
             failed_idx.extend(batch_idx)
             for global_i in batch_idx:

@@ -54,6 +54,25 @@ LOW_SIGNAL_RE = re.compile(
 def is_low_signal(headline: str) -> bool:
     return bool(LOW_SIGNAL_RE.search(headline.strip()))
 
+def sample_company_updates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For Company Update category, keep only 1 headline per (ticker, date).
+    All other categories are kept in full.
+    """
+    updates  = df[df["category"] == "Company Update"]
+    rest     = df[df["category"] != "Company Update"]
+
+    # Keep the longest headline per (ticker, date) — more text = more signal
+    updates_sampled = (
+        updates
+        .assign(length=updates["headline"].str.len())
+        .sort_values("length", ascending=False)
+        .drop_duplicates(subset=["ticker", "date"])
+        .drop(columns=["length"])
+    )
+
+    return pd.concat([rest, updates_sampled], ignore_index=True)
+
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     original_count = len(df)
@@ -84,7 +103,12 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     dropped = original_count - len(df)
     print(f"\nTotal rows dropped: {dropped:,} ({dropped/original_count*100:.1f}%)")
 
+    # Sample company updates to 1 per (ticker, date)
+    df = sample_company_updates(df)
+    print(f"After sampling company updates: {len(df):,} rows")
+    
     return df.sort_values(["ticker", "date"]).reset_index(drop=True)
+
 
 
 def main():
