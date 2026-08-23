@@ -35,3 +35,5 @@ Thumbs.db
 # Logs / plots
 *.png
 *.log
+
+portfolio.db
