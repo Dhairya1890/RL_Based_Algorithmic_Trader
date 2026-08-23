@@ -7,3 +7,7 @@ optuna>=3.4.0
 
 matplotlib>=3.7.0
 shap>=0.43.0
+
+catboost>=1.2.10
+lightgbm>=4.7.0
+tabulate
