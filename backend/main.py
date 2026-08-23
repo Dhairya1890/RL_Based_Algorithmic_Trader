@@ -7,11 +7,12 @@ import uvicorn
 import math
 import numpy as np
 
-from .db import init_db, get_portfolio_history
+from .db import init_db, get_portfolio_history, delete_portfolio_history
 from .portfolio import apply_trade, get_last_portfolio_state
 from .features import fetch_and_prepare_features
 from .sentiment import get_live_sentiment
 from .model import load_models, predict_action
+import random
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -143,7 +144,8 @@ def run_trade(symbol: str):
         action_idx=action_idx, 
         daily_return=daily_return, 
         sentiment_score=sentiment["Sentiment_Score"],
-        article_count=sentiment["Article_Count"]
+        article_count=sentiment["Article_Count"],
+        current_price=today_close
     )
     
     # 11. Return JSON
@@ -157,6 +159,64 @@ def run_trade(symbol: str):
         "sentiment_score": new_state["sentiment_score"],
         "article_count": new_state["article_count"]
     }
+
+@app.post("/backtest/{symbol}")
+def run_backtest(symbol: str, days: int = 30):
+    if symbol not in NIFTY_50:
+        raise HTTPException(status_code=404, detail="Symbol not found")
+        
+    # Clear existing history for a clean backtest
+    delete_portfolio_history(symbol)
+        
+    try:
+        # Fetch 60 + days to ensure we have enough data to iterate
+        full_features = fetch_and_prepare_features(symbol, return_days=days + 30)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch features: {e}")
+        
+    if len(full_features) < days + 30:
+        raise HTTPException(status_code=500, detail="Not enough historical data for backtest")
+
+    # Iterate through the last `days` days
+    for i in range(days):
+        # We need a 30-day window ending at target_idx
+        target_idx = len(full_features) - days + i
+        window_df = full_features.iloc[target_idx - 30 : target_idx].copy()
+        
+        date_obj = window_df.index[-1]
+        date_str = date_obj.strftime("%Y-%m-%d")
+        
+        today_close = window_df.iloc[-1]['Close']
+        yesterday_close = window_df.iloc[-1]['Prev Close']
+        daily_return = (today_close - yesterday_close) / yesterday_close if yesterday_close else 0.0
+        
+        last_state = get_last_portfolio_state(symbol)
+        rolling_3d = last_state["sentiment_score"] if last_state else 0.0
+        current_position = last_state["position"] if last_state else 0
+        
+        # We simulate a random sentiment for backtesting so the UI looks realistic
+        simulated_score = random.uniform(-0.5, 0.5)
+        sentiment = {
+            "Sentiment_Score": simulated_score,
+            "Sentiment_Magnitude": random.uniform(0.1, 0.8),
+            "Article_Count": random.randint(2, 10),
+            "Sentiment_Rolling_3D": rolling_3d,
+            "headlines": []
+        }
+        
+        action_idx = predict_action(window_df, sentiment, current_position)
+        
+        apply_trade(
+            symbol=symbol, 
+            date=date_str, 
+            action_idx=action_idx, 
+            daily_return=daily_return, 
+            sentiment_score=sentiment["Sentiment_Score"],
+            article_count=sentiment["Article_Count"],
+            current_price=today_close
+        )
+        
+    return {"status": "success", "days_processed": days}
     
 if __name__ == "__main__":
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -70,21 +70,16 @@ def compute_engineered_features(df):
 
     return df
 
-def fetch_and_prepare_features(symbol: str):
+def fetch_and_prepare_features(symbol: str, return_days: int = 30):
     # Fetch enough historical data from yfinance
-    # We need 30 final rows. We also need 50 days of warmup for SMA_50. 
-    # Total needed = 80 trading days. 6 months gives ~126 trading days.
+    # We need 'return_days' final rows. We also need 50 days of warmup for SMA_50. 
+    # For backtesting (e.g. 60 days), we need 60 + 50 = 110 trading days. 6 months gives ~126 trading days.
+    # 1 year gives ~252 trading days.
     yf_symbol = f"{symbol}.NS"
     ticker = yf.Ticker(yf_symbol)
-    df = ticker.history(period="6mo")
-    if len(df) < 80:
-        pass
-    
-    # Take the last 100 days to be safe
-    df = df.tail(100).copy()
+    df = ticker.history(period="1y")
     
     # Format columns as expected
-    # yfinance columns: Open, High, Low, Close, Volume, Dividends, Stock Splits
     df['Prev Close'] = df['Close'].shift(1)
     df['Last'] = df['Close']
     df['VWAP'] = (df['High'] + df['Low'] + df['Close']) / 3
@@ -93,22 +88,17 @@ def fetch_and_prepare_features(symbol: str):
     df['Deliverable Volume'] = 0
     df['Deliverable_Pct'] = 0
 
-    # Ensure no division by zero for VWAP_Dist
     df['VWAP'] = df['VWAP'].replace(0, np.nan)
     
-    # Compute engineered features
     df = compute_engineered_features(df)
     
-    # Drop rows with NaN from warm-up period (specifically SMA_50 needs 50 days)
     df.dropna(subset=[
         'Log_Return', 'Vol_10D', 'Vol_20D', 'Dist_SMA_10', 'Dist_SMA_20',
         'Dist_SMA_50', 'RSI_14', 'MACD', 'MACD_Signal', 'MACD_Diff',
         'BB_Pband', 'ATR_14', 'Volume_Ratio_20', 'VWAP_Dist', 'Deliverable_Pct'
     ], inplace=True)
     
-    # We need the last 30 rows
-    df = df.tail(30).copy()
-    return df
+    return df.tail(return_days).copy()
 
 STATE_FEATURES = [
     # Raw (12)

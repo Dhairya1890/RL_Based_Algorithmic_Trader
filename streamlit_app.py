@@ -35,6 +35,13 @@ def run_trade(symbol):
     except:
         return None
 
+def run_backtest(symbol):
+    try:
+        r = requests.post(f"{API_BASE}/backtest/{symbol}?days=30")
+        return r.json() if r.status_code == 200 else None
+    except:
+        return None
+
 st.title("🤖 NIFTY 50 Live Paper Trading Platform")
 st.markdown("Agent autonomously trades using DQN model. Watch its performance below.")
 
@@ -56,6 +63,14 @@ if st.sidebar.button("Run Today's Trade", type="primary"):
         else:
             st.sidebar.error("Trade failed.")
 
+if st.sidebar.button("Run 30-Day Backtest"):
+    with st.spinner(f"Simulating past 30 days for {selected_symbol}..."):
+        bt_res = run_backtest(selected_symbol)
+        if bt_res:
+            st.sidebar.success("Backtest completed!")
+        else:
+            st.sidebar.error("Backtest failed.")
+
 # Main app
 portfolio = fetch_portfolio(selected_symbol)
 sentiment = fetch_sentiment(selected_symbol)
@@ -75,7 +90,8 @@ if portfolio and portfolio.get("history"):
     
     # Position
     pos = "IN MARKET" if latest["position"] == 1 else "SITTING OUT"
-    col2.metric("Current Position", pos)
+    shares_text = f"{latest.get('shares', 0)} Shares" if latest["position"] == 1 else "Cash Only"
+    col2.metric("Current Position", pos, shares_text)
     
     # Return
     ret = latest["daily_return_pct"]
@@ -107,6 +123,7 @@ if portfolio and portfolio.get("history"):
     
     # Ensure starting at 1,000,000
     df_chart = df[["date", "portfolio_value", "bah_value"]].set_index("date")
+    df_chart.columns = ["Agent Portfolio", "Buy & Hold"]
     
     st.line_chart(df_chart, use_container_width=True)
     
@@ -125,9 +142,11 @@ if portfolio and portfolio.get("history"):
     c2.metric("vs Buy-and-Hold", f"{round(total_ret - bah_ret, 2)}%")
     c3.metric("Trades Made", trades_made)
     c4.metric("Win Rate", f"{round(win_rate, 1)}%")
+
+    st.caption(f"**Account Breakdown:** Cash Balance = ₹{latest.get('cash', 1000000):,.2f} | Stock Value = ₹{(latest.get('shares', 0) * (latest.get('portfolio_value', 1000000) - latest.get('cash', 1000000)) / max(latest.get('shares', 1), 1)):,.2f}")
     
 else:
-    st.info("No trading history for this stock. Click 'Run Today's Trade' to start.")
+    st.info("No trading history for this stock. Click 'Run Today's Trade' or 'Run 30-Day Backtest' to start.")
 
 st.divider()
 
@@ -148,6 +167,9 @@ if sentiment:
     if portfolio and portfolio.get("history"):
         st.subheader("7-Day Sentiment Trend")
         df_hist = pd.DataFrame(portfolio["history"]).tail(7)
-        st.line_chart(df_hist.set_index("date")["sentiment_score"], height=150)
+        if len(df_hist) > 1:
+            st.line_chart(df_hist.set_index("date")["sentiment_score"], height=150)
+        else:
+            st.write("Not enough days to show trend.")
 else:
     st.write("No sentiment data available.")
