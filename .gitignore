@@ -37,3 +37,5 @@ Thumbs.db
 *.log
 
 portfolio.db
+Locust_2026-08-24-14h56_locustfile.py_http___localhost_8000.html
+*.pdf
