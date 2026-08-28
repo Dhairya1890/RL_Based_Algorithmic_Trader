@@ -42,7 +42,7 @@ def run_backtest(symbol):
     except:
         return None
 
-st.title("🤖 NIFTY 50 Live Paper Trading Platform")
+st.title("NIFTY 50 Live Paper Trading Platform")
 st.markdown("Agent autonomously trades using DQN model. Watch its performance below.")
 
 # Sidebar
