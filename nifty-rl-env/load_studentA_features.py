@@ -2,13 +2,13 @@
 load_studentA_features.py
 --------------------------
 Loads Nitesh's CLEAN, feature-engineered, per-stock data from
-studentA/data/processed/ — this REPLACES the yfinance data I was
-pulling myself earlier. Nitesh has already computed RSI, MACD,
-volatility, etc. correctly per stock, so I build on top of his output
+studentA/data/processed/. This REPLACES the yfinance data pulled
+earlier. Nitesh has already computed RSI, MACD, volatility, etc.
+correctly per stock, so this file builds on top of his output
 instead of duplicating that work.
 
 Explicitly refuses to load NIFTY50_all.csv, which is a known-corrupted
-file mixing all 50 companies together — see config_env.EXCLUDED_FILES.
+file mixing all 50 companies together -- see config_env.EXCLUDED_FILES.
 """
 
 import os
@@ -42,7 +42,7 @@ def load_stock_features(ticker: str = cfg.DEFAULT_TICKER) -> pd.DataFrame:
 
     Raises an error rather than silently loading bad data if:
       - the requested ticker is in the excluded-files list
-      - the file doesn't exist
+      - the file does not exist
       - any leakage column (Tomorrow_Close, Tomorrow_Return, Target)
         would end up in the returned feature set
     """
@@ -79,7 +79,7 @@ def load_stock_features(ticker: str = cfg.DEFAULT_TICKER) -> pd.DataFrame:
     if leaked:
         raise ValueError(
             f"Leakage column(s) {leaked} found inside the feature column "
-            f"config — this must never happen. Check config_env.py."
+            f"config -- this must never happen. Check config_env.py."
         )
 
     keep_cols = ["Date", "Close"] + cfg.RAW_NUMERIC_COLUMNS + cfg.ENGINEERED_COLUMNS
