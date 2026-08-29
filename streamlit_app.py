@@ -4,7 +4,9 @@ import numpy as np
 import plotly.express as px
 import requests
 
-API_BASE = "http://localhost:8000"
+import os
+
+API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 # --- API FUNCTIONS ---
 @st.cache_data(ttl=60)
@@ -32,16 +34,22 @@ def fetch_sentiment(symbol):
 def run_trade(symbol):
     try:
         r = requests.post(f"{API_BASE}/trade/{symbol}")
-        return r.json() if r.status_code == 200 else None
-    except:
-        return None
+        if r.status_code == 200:
+            return r.json(), None
+        else:
+            return None, r.text
+    except Exception as e:
+        return None, str(e)
 
 def run_backtest(symbol):
     try:
         r = requests.post(f"{API_BASE}/backtest/{symbol}?days=30")
-        return r.json() if r.status_code == 200 else None
-    except:
-        return None
+        if r.status_code == 200:
+            return r.json(), None
+        else:
+            return None, r.text
+    except Exception as e:
+        return None, str(e)
 
 # Helpers for metrics
 def calc_sharpe(returns, risk_free_rate=0.0):
@@ -171,19 +179,21 @@ with st.sidebar:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Run today's trade", use_container_width=True, type="secondary"):
         with st.spinner("Analyzing and executing..."):
-            if run_trade(selected_symbol):
+            res, err = run_trade(selected_symbol)
+            if res:
                 st.success("Trade executed successfully!")
                 st.rerun()
             else:
-                st.error("Failed to execute trade.")
+                st.error(f"Failed to execute trade: {err}")
         
     if st.button("Run 30-day backtest", use_container_width=True, type="secondary"):
         with st.spinner("Running 30-day simulation..."):
-            if run_backtest(selected_symbol):
+            res, err = run_backtest(selected_symbol)
+            if res:
                 st.success("Backtest completed!")
                 st.rerun()
             else:
-                st.error("Failed to run backtest.")
+                st.error(f"Failed to run backtest: {err}")
 
 
 # --- MAIN CONTENT ---
@@ -320,17 +330,44 @@ if nav == "Live trading":
 
         # --- TAB 3: FEED ---
         with tab3:
-            st.markdown("### Sentiment Feed")
+            st.markdown("### Daily Sentiment Analysis")
             if sentiment:
-                st.write(f"**Score:** {sentiment.get('sentiment_score', 0)}")
-                st.write(f"**Magnitude:** {sentiment.get('sentiment_magnitude', 0)}")
-                st.write(f"**Articles Processed:** {sentiment.get('article_count', 0)}")
+                score = sentiment.get('sentiment_score', 0)
+                score_color = "text-green" if score > 0 else "text-red" if score < 0 else "text-gray"
                 
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <div class="metric-title">Aggregated Score</div>
+                        <div class="metric-value {score_color}">{score:+.2f}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                with sc2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <div class="metric-title">Signal Magnitude</div>
+                        <div class="metric-value">{sentiment.get('sentiment_magnitude', 0):.2f}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                with sc3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <div class="metric-title">Articles Processed</div>
+                        <div class="metric-value">{sentiment.get('article_count', 0)}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                st.markdown("<br><h4>Top Headlines</h4>", unsafe_allow_html=True)
                 headlines = sentiment.get("headlines", [])
                 if headlines:
-                    st.write("**Top Headlines:**")
-                    for h in headlines:
-                        st.markdown(f"- {h}")
+                    for idx, h in enumerate(headlines):
+                        st.markdown(f"""
+                        <div style="padding: 15px; border-left: 4px solid #555; background-color: #1c1f26; margin-bottom: 10px; border-radius: 4px;">
+                            <span style="color: #aaa; font-size: 12px; text-transform: uppercase;">Headline {idx + 1}</span><br>
+                            <span style="font-size: 16px; font-weight: 500;">{h}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
                 else:
                     st.info("No headlines found for today.")
             else:
@@ -346,15 +383,77 @@ elif nav == "Backtest":
     
 elif nav == "Sentiment feed":
     st.header("Sentiment Feed Overview")
+    st.markdown(f"**Stock:** {selected_symbol}")
+    
     sentiment = fetch_sentiment(selected_symbol)
-    if sentiment and sentiment.get("headlines"):
-        st.write(f"**Stock:** {selected_symbol}")
-        st.write(f"**Score:** {sentiment.get('sentiment_score', 0)}")
-        for h in sentiment.get("headlines", []):
-            st.markdown(f"- {h}")
-    else:
-        st.write("No headlines found.")
+    if sentiment:
+        score = sentiment.get('sentiment_score', 0)
+        score_color = "text-green" if score > 0 else "text-red" if score < 0 else "text-gray"
         
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-title">Aggregated Score</div>
+                <div class="metric-value {score_color}">{score:+.2f}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with sc2:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-title">Signal Magnitude</div>
+                <div class="metric-value">{sentiment.get('sentiment_magnitude', 0):.2f}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with sc3:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-title">Articles Processed</div>
+                <div class="metric-value">{sentiment.get('article_count', 0)}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+        st.markdown("<br><h4>Top Headlines</h4>", unsafe_allow_html=True)
+        headlines = sentiment.get("headlines", [])
+        if headlines:
+            for idx, h in enumerate(headlines):
+                st.markdown(f"""
+                <div style="padding: 15px; border-left: 4px solid #555; background-color: #1c1f26; margin-bottom: 10px; border-radius: 4px;">
+                    <span style="color: #aaa; font-size: 12px; text-transform: uppercase;">Headline {idx + 1}</span><br>
+                    <span style="font-size: 16px; font-weight: 500;">{h}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No headlines found for today.")
+    else:
+        st.warning("No sentiment data available for this stock currently.")
+        
+elif nav == "About":
+    st.title("About the Project")
+    
+    st.markdown("""
+    ### Team K_Means_Kuch_Bhi
+    
+    * **Nitesh** — XGBoost supervised baseline & Feature Engineering
+    * **Adithya** — Custom Gymnasium Trading Environment (`NiftyTradingEnv`)
+    * **Harjap** — DQN Agent Training (Price vs. Sentiment Ablation)
+    * **Dhairya** — News Sentiment Pipeline & Full-Stack Deployment
+    
+    ---
+    
+    ### How it works
+    
+    1. **Historical NIFTY 50 Data:** Cleaned end-of-day OHLCV data from the Kaggle dataset (2000-2021).
+    2. **News Sentiment Pipeline:** BSE filings and news articles are scored by Google Gemini for price impact.
+    3. **DQN Training:** A reinforcement learning agent learns to maximise risk-adjusted returns through trial and error.
+       * **Run A:** Trained exclusively on technical indicators (RSI, MACD, etc.).
+       * **Run B:** Trained on technical indicators + Gemini sentiment scores.
+    4. **Ablation Study:** This platform evaluates whether the addition of NLP-derived sentiment (Run B) provides a statistically significant improvement in Sharpe Ratio and Max Drawdown over price-action alone (Run A).
+    
+    ### Technologies Used
+    Python, Streamlit, Stable-Baselines3, Plotly, Pandas, yfinance, Google Gemini, FastAPI.
+    """)
+
 else:
     st.header(nav)
     st.write(f"Content for {nav} is under construction.")

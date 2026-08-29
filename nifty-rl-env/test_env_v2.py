@@ -71,9 +71,9 @@ def test_buy_and_hold_matches_manual(df, initial_capital=100_000.0):
 
     diff = abs(env_return_pct - manual_return_pct)
     if diff < 0.005:
-        print(f"PASSED — difference of {diff:.6%} is explained by transaction cost.\n")
+        print(f"PASSED -- difference of {diff:.6%} is explained by transaction cost.\n")
     else:
-        print(f"WARNING — difference of {diff:.6%} is larger than expected. Investigate.\n")
+        print(f"WARNING -- difference of {diff:.6%} is larger than expected. Investigate.\n")
 
 
 if __name__ == "__main__":
