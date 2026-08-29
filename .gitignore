@@ -20,6 +20,7 @@ nifty-rl-env/data/NIFTY50_all.csv
 
 # Trained model artifacts
 *.zip
+!backend/models/dqn_nifty50_generic_agent.zip
 
 # Jupyter
 .ipynb_checkpoints/
